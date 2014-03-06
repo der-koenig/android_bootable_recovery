@@ -67,7 +67,7 @@ extern blanktimer blankTimer;
 void curtainClose(void);
 
 GUIAction::GUIAction(xml_node<>* node)
-	: Conditional(node)
+	: GUIObject(node)
 {
 	xml_node<>* child;
 	xml_node<>* actions;
@@ -144,16 +144,13 @@ int GUIAction::NotifyKey(int key)
 	return 0;
 }
 
-int GUIAction::NotifyVarChange(std::string varName, std::string value)
+int GUIAction::NotifyVarChange(const std::string& varName, const std::string& value)
 {
+	GUIObject::NotifyVarChange(varName, value);
+
 	if (varName.empty() && !isConditionValid() && !mKey && !mActionW)
 		doActions();
-
-	// This handles notifying the condition system of page start
-	if (varName.empty() && isConditionValid())
-		NotifyPageSet();
-
-	if ((varName.empty() || IsConditionVariable(varName)) && isConditionValid() && isConditionTrue())
+	else if((varName.empty() || IsConditionVariable(varName)) && isConditionValid() && isConditionTrue())
 		doActions();
 
 	return 0;
@@ -314,6 +311,7 @@ void* GUIAction::thread_start(void *cookie)
 
 void GUIAction::operation_start(const string operation_name)
 {
+	time(&Start);
 	DataManager::SetValue(TW_ACTION_BUSY, 1);
 	DataManager::SetValue("ui_progress", 0);
 	DataManager::SetValue("tw_operation", operation_name);
@@ -323,6 +321,7 @@ void GUIAction::operation_start(const string operation_name)
 
 void GUIAction::operation_end(const int operation_status, const int simulate)
 {
+	time_t Stop;
 	int simulate_fail;
 	DataManager::SetValue("ui_progress", 100);
 	if (simulate) {
@@ -344,6 +343,9 @@ void GUIAction::operation_end(const int operation_status, const int simulate)
 #ifndef TW_NO_SCREEN_TIMEOUT
 	blankTimer.resetTimerAndUnblank();
 #endif
+	time(&Stop);
+	if ((int) difftime(Stop, Start) > 10)
+		DataManager::Vibrate("tw_action_vibrate");
 }
 
 int GUIAction::doAction(Action action, int isThreaded /* = 0 */)
@@ -441,49 +443,29 @@ int GUIAction::doAction(Action action, int isThreaded /* = 0 */)
 		return 0;
 	}
 
-	if (function == "mount")
-	{
-		if (arg == "usb")
-		{
+	if (function == "mount") {
+		if (arg == "usb") {
 			DataManager::SetValue(TW_ACTION_BUSY, 1);
 			if (!simulate)
 				PartitionManager.usb_storage_enable();
 			else
 				gui_print("Simulating actions...\n");
-		}
-		else if (!simulate)
-		{
-			string cmd;
-			if (arg == "EXTERNAL")
-				PartitionManager.Mount_By_Path(DataManager::GetStrValue(TW_EXTERNAL_MOUNT), true);
-			else if (arg == "INTERNAL")
-				PartitionManager.Mount_By_Path(DataManager::GetStrValue(TW_INTERNAL_MOUNT), true);
-			else
-				PartitionManager.Mount_By_Path(arg, true);
+		} else if (!simulate) {
+			PartitionManager.Mount_By_Path(arg, true);
 		} else
 			gui_print("Simulating actions...\n");
 		return 0;
 	}
 
-	if (function == "umount" || function == "unmount")
-	{
-		if (arg == "usb")
-		{
+	if (function == "umount" || function == "unmount") {
+		if (arg == "usb") {
 			if (!simulate)
 				PartitionManager.usb_storage_disable();
 			else
 				gui_print("Simulating actions...\n");
 			DataManager::SetValue(TW_ACTION_BUSY, 0);
-		}
-		else if (!simulate)
-		{
-			string cmd;
-			if (arg == "EXTERNAL")
-				PartitionManager.UnMount_By_Path(DataManager::GetStrValue(TW_EXTERNAL_MOUNT), true);
-			else if (arg == "INTERNAL")
-				PartitionManager.UnMount_By_Path(DataManager::GetStrValue(TW_INTERNAL_MOUNT), true);
-			else
-				PartitionManager.UnMount_By_Path(arg, true);
+		} else if (!simulate) {
+			PartitionManager.UnMount_By_Path(arg, true);
 		} else
 			gui_print("Simulating actions...\n");
 		return 0;
@@ -603,57 +585,6 @@ int GUIAction::doAction(Action action, int isThreaded /* = 0 */)
 
 	if (function == "togglestorage") {
 		LOGERR("togglestorage action was deprecated from TWRP\n");
-		if (arg == "internal") {
-			DataManager::SetValue(TW_USE_EXTERNAL_STORAGE, 0);
-		} else if (arg == "external") {
-			DataManager::SetValue(TW_USE_EXTERNAL_STORAGE, 1);
-		}
-		if (PartitionManager.Mount_Current_Storage(true)) {
-			if (arg == "internal") {
-				string zip_path, zip_root;
-				DataManager::GetValue(TW_ZIP_INTERNAL_VAR, zip_path);
-				zip_root = TWFunc::Get_Root_Path(zip_path);
-#ifdef RECOVERY_SDCARD_ON_DATA
-	#ifndef TW_EXTERNAL_STORAGE_PATH
-				if (zip_root != "/sdcard")
-					DataManager::SetValue(TW_ZIP_INTERNAL_VAR, "/sdcard");
-	#else
-				if (strcmp(EXPAND(TW_EXTERNAL_STORAGE_PATH), "/sdcard") == 0) {
-					if (zip_root != "/emmc")
-						DataManager::SetValue(TW_ZIP_INTERNAL_VAR, "/emmc");
-				} else {
-					if (zip_root != "/sdcard")
-						DataManager::SetValue(TW_ZIP_INTERNAL_VAR, "/sdcard");
-				}
-	#endif
-#else
-				if (zip_root != DataManager::GetCurrentStoragePath())
-					DataManager::SetValue(TW_ZIP_LOCATION_VAR, DataManager::GetCurrentStoragePath());
-#endif
-				// Save the current zip location to the external variable
-				DataManager::SetValue(TW_ZIP_EXTERNAL_VAR, DataManager::GetStrValue(TW_ZIP_LOCATION_VAR));
-				// Change the current zip location to the internal variable
-				DataManager::SetValue(TW_ZIP_LOCATION_VAR, DataManager::GetStrValue(TW_ZIP_INTERNAL_VAR));
-			} else if (arg == "external") {
-				string zip_path, zip_root;
-				DataManager::GetValue(TW_ZIP_EXTERNAL_VAR, zip_path);
-				zip_root = TWFunc::Get_Root_Path(zip_path);
-				if (zip_root != DataManager::GetCurrentStoragePath()) {
-					DataManager::SetValue(TW_ZIP_EXTERNAL_VAR, DataManager::GetCurrentStoragePath());
-				}
-				// Save the current zip location to the internal variable
-				DataManager::SetValue(TW_ZIP_INTERNAL_VAR, DataManager::GetStrValue(TW_ZIP_LOCATION_VAR));
-				// Change the current zip location to the external variable
-				DataManager::SetValue(TW_ZIP_LOCATION_VAR, DataManager::GetStrValue(TW_ZIP_EXTERNAL_VAR));
-			}
-		} else {
-			// We weren't able to toggle for some reason, restore original setting
-			if (arg == "internal") {
-				DataManager::SetValue(TW_USE_EXTERNAL_STORAGE, 1);
-			} else if (arg == "external") {
-				DataManager::SetValue(TW_USE_EXTERNAL_STORAGE, 0);
-			}
-		}
 		return 0;
 	}
 	
@@ -920,6 +851,7 @@ int GUIAction::doAction(Action action, int isThreaded /* = 0 */)
 					else {
 						operation_end(1, simulate);
 						return -1;
+
 					}
 					DataManager::SetValue(TW_BACKUP_NAME, "(Auto Generate)");
 				} else if (arg == "restore") {
@@ -1173,11 +1105,12 @@ int GUIAction::doAction(Action action, int isThreaded /* = 0 */)
 				int wipe_dalvik = 0;
 				string Sideload_File;
 
-				if (!PartitionManager.Mount_Current_Storage(true)) {
-					operation_end(1, simulate);
-					return 0;
+				if (!PartitionManager.Mount_Current_Storage(false)) {
+					gui_print("Using RAM for sideload storage.\n");
+					Sideload_File = "/tmp/sideload.zip";
+				} else {
+					Sideload_File = DataManager::GetCurrentStoragePath() + "/sideload.zip";
 				}
-				Sideload_File = DataManager::GetCurrentStoragePath() + "/sideload.zip";
 				if (TWFunc::Path_Exists(Sideload_File)) {
 					unlink(Sideload_File.c_str());
 				}
@@ -1195,6 +1128,7 @@ int GUIAction::doAction(Action action, int isThreaded /* = 0 */)
 				} else {
 					ret = 1; // failure
 				}
+				PartitionManager.Update_System_Details();
 				if (DataManager::GetIntValue(TW_HAS_INJECTTWRP) == 1 && DataManager::GetIntValue(TW_INJECT_AFTER_ZIP) == 1) {
 					operation_start("ReinjectTWRP");
 					gui_print("Injecting TWRP into boot image...\n");
