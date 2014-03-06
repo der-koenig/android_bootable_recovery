@@ -5,7 +5,7 @@ LOCAL_SRC_FILES:= \
 	getfooter.c
 LOCAL_CFLAGS:= -g -c -W
 LOCAL_MODULE:=getfooter
-LOCAL_MODULE_TAGS:= eng
+LOCAL_MODULE_TAGS:= optional
 LOCAL_STATIC_LIBRARIES += libfs_mgrtwrp libc libcutils
 LOCAL_MODULE_CLASS := UTILITY_EXECUTABLES
 LOCAL_MODULE_PATH := $(PRODUCT_OUT)/utilities
